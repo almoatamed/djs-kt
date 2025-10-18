@@ -1,0 +1,47 @@
+{
+  "name": "djs-kt",
+  "version": "1.0.0",
+  "description": "djs-kt: a TypeScript dynamic JSON manager for Node.js clusters — supports in-memory, JSON-file and Redis-backed state with optional distributed locks.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "module": "index.ts",
+  "files": [
+    "dist",
+    "index.ts",
+    "djs.ts",
+    "redis/",
+    "utils/",
+    "README.md"
+  ],
+  "type": "module",
+  "keywords": [
+    "djs-kt",
+    "dynamic-json",
+    "json-manager",
+    "distributed-lock",
+    "redis",
+    "cluster",
+    "nodejs",
+    "typescript"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/almoatamed/djs-kt.git"
+  },
+  "author": "Salem Elmotamed s.elmotamed96@gmail.com",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/async-lock": "^1.4.2"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "async-lock": "^1.4.1",
+    "ioredis": "^5.8.1"
+  }
+}
