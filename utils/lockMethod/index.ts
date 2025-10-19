@@ -5,7 +5,6 @@ type UnwrapPromise<P> = P extends Promise<infer R> ? R : P;
 
 const lock = new AsyncLock({ maxExecutionTime: 5e3 });
 
-
 export const lockMethod = function <T extends (...args: any[]) => any>(
     method: T,
     {
