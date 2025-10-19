@@ -83,53 +83,52 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
         }): Promise<ThreadedJson<JSONDefinition>> {
             const uniqueEventId = `${source.type == "jsonFile" ? source.fileFullPath : source.uniqueIdentifier}`;
 
-            let lockId: string | null = null;
-
             if (source.type == "redis" && (!redisClient || !redisLock)) {
                 throw new Error(
                     "this manager cannot create redis based client with redis connection, please create new manager with a valid redis connection"
                 );
             }
 
-            const lock = async (): Promise<boolean> => {
-                if (source.type == "redis" && cluster.isPrimary) {
-                    lockId = await redisLock!.acquire(uniqueEventId);
-                    return !!lockId;
-                } else {
-                    return true;
-                }
-            };
-            const release = async () => {
-                if (source.type == "redis" && lockId) {
-                    await redisLock!.release(uniqueEventId, lockId);
-                }
-            };
-
-            const lockMethod = <T extends (...args: any[]) => any>(method: T) => {
-                return LockMethod(
-                    (async (...args: any) => {
-                        const locked = await lock();
-                        if (locked) {
-                            try {
-                                method(...args);
-                            } catch (error) {
-                                console.error(error);
-                                throw error;
-                            } finally {
-                                release();
-                            }
-                        } else {
-                            throw new Error("failed to acquire redis Lock " + uniqueEventId);
-                        }
-                    }) as T,
-                    {
-                        lockName: uniqueEventId,
-                        lockTimeout: 5e3,
-                    }
-                );
-            };
-
             if (cluster.isPrimary) {
+                let redisLockId: string | null = null;
+
+                const lockRedis = async (force = false): Promise<boolean> => {
+                    if (((!lockId && !primaryLock.locked) || force) && source.type == "redis" && cluster.isPrimary) {
+                        redisLockId = await redisLock!.acquire(uniqueEventId);
+                        return !!redisLockId;
+                    } else {
+                        return true;
+                    }
+                };
+                const releaseRedis = async (force = false) => {
+                    if (((!lockId && !primaryLock.locked) || force) && source.type == "redis" && redisLockId) {
+                        await redisLock!.release(uniqueEventId, redisLockId);
+                    }
+                };
+
+                const lockMethod = <T extends (...args: any[]) => any>(method: T) => {
+                    return LockMethod(
+                        (async (...args: any) => {
+                            const locked = await lockRedis();
+                            if (locked) {
+                                try {
+                                    method(...args);
+                                } catch (error) {
+                                    console.error(error);
+                                    throw error;
+                                } finally {
+                                    releaseRedis();
+                                }
+                            } else {
+                                throw new Error("failed to acquire redis Lock " + uniqueEventId);
+                            }
+                        }) as T,
+                        {
+                            lockName: uniqueEventId,
+                            lockTimeout: 5e3,
+                        }
+                    );
+                };
                 let inMemory = initialContent || {};
                 if (source.type == "jsonFile") {
                     if (initialContent && !(await fs.exists(source.fileFullPath))) {
@@ -139,7 +138,7 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                     if (initialContent) {
                         const existingContent = await redisClient!.get(uniqueEventId);
                         if (!existingContent) {
-                            const locked = await lock();
+                            const locked = await lockRedis();
                             if (locked) {
                                 try {
                                     await redisClient!.set(uniqueEventId, JSON.stringify(initialContent));
@@ -147,7 +146,7 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                                     console.error(error);
                                     throw error;
                                 } finally {
-                                    release();
+                                    releaseRedis();
                                 }
                             }
                         }
@@ -404,12 +403,16 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                     if (lockId) {
                         await waitForLockIdRelease();
                     }
+                    await lockRedis(true);
+
                     setPrimaryLockId(timeout);
                     try {
                         await cb(result);
                     } catch (error) {
                         console.error(error);
+                        throw error;
                     } finally {
+                        releaseRedis(true);
                         clearPrimaryLockId();
                     }
                 };
