@@ -32,6 +32,7 @@ This repository is TypeScript-based. To use in your project either build the pac
 Example setup (quick):
 
 1. Install the `djs-kt` package from npm (or bun):
+ 
 
 ```bash
 # using npm
@@ -103,8 +104,9 @@ async function main() {
  const list = await doc.get(['users'])
  console.log(list)
 }
-
+ 
 main()
+
 ```
 
 Notes: in-memory mode is ideal for single-process apps or when the primary process holds the authoritative state.
@@ -115,26 +117,22 @@ Notes: in-memory mode is ideal for single-process apps or when the primary proce
 import { makeDJSManager } from 'djs-kt'
 
 async function fileExample() {
- const manager = makeDJSManager()
- const doc = await manager.makeDynamicJson<{ counter: number }>({
-  source: { type: 'jsonFile', fileFullPath: './data/counter.json' },
-  initialContent: { counter: 0 }
- })
+  const manager = makeDJSManager()
+  const doc = await manager.makeDynamicJson<{ counter: number }>({
+    source: { type: 'jsonFile', fileFullPath: './data/counter.json' },
+    initialContent: { counter: 0 }
+  })
 
- await doc.set([], 'counter', 42)
- console.log(await doc.get([]))
+  await doc.set([], 'counter', 42)
+  console.log(await doc.get([]))
 }
 
 fileExample()
 ```
-
-Only the primary (master) cluster process writes the file. Worker processes send queries to the primary.
-
+ 
 ### 3) Redis-backed manager with distributed locks (cluster-safe)
 
 This mode requires a Redis client instance compatible with methods `get`, `set`, and basic string operations.
-You can use node-redis, ioredis, or other similar clients — pass a client with `get` and `set` methods.
-
 ```ts
 import cluster from 'cluster'
 import { createClient } from 'redis' // or ioredis
@@ -153,7 +151,7 @@ async function start() {
 
 start().catch(console.error)
 ```
-
+ 
 When Redis mode is used, the library will attempt to acquire a distributed lock (via the `DistributedLock` helper)
 inside the primary before making changes. Worker processes send requests to the primary which applies changes.
 
@@ -179,6 +177,86 @@ const lockedIncrement = lockMethod(incrementCounter, { lockName: 'counter-lock',
 // Now calling lockedIncrement(...) will run the function under the named lock
 await lockedIncrement(doc, 1)
 ```
+
+## Transactions
+
+The library exposes a `transaction` helper on the ThreadedJson instance used in some setups to run a series of
+operations as a single logical step on the primary. The primary applies the transaction under the library's locking
+strategy so concurrent updates are serialized. This is particularly useful for updating counters or performing read-update-write
+sequences safely.
+
+The example below is adapted from `test.ts` in this repository and demonstrates using `transaction` in a cluster where
+the primary hosts the authoritative state and workers send requests.
+
+```ts
+// test.ts (example usage)
+import cluster from 'cluster';
+import { createDynamicJsonManager as makeDJSManager } from 'djs-kt';
+
+const NUM_WORKERS = 3;
+const UNIQUE_ID = 'mem:counter';
+
+if (cluster.isPrimary) {
+  (async () => {
+    const manager = makeDJSManager();
+    const doc = await manager.makeDynamicJson({
+      source: { type: 'inMemory', uniqueIdentifier: UNIQUE_ID },
+      initialContent: { counter: 0 },
+    });
+
+    // spawn workers
+    for (let i = 0; i < NUM_WORKERS; i++) cluster.fork({ WORKER_INDEX: String(i + 1) });
+
+    // run two transactions sequentially on the primary
+    await doc.transaction(async (d) => {
+      console.log('Primary transaction: increment');
+      const s = await d.get(['counter']);
+      await d.set([], 'counter', (s as number) + 1);
+    });
+
+    await doc.transaction(async (d) => {
+      console.log('Primary transaction: increment');
+      const s = await d.get(['counter']);
+      await d.set([], 'counter', (s as number) + 1);
+    });
+
+    // wait and print final counter
+    setTimeout(async () => {
+      console.log('final:', await doc.get(['counter']));
+      process.exit(0);
+    }, 3000);
+  })();
+} else {
+  (async () => {
+    const manager = makeDJSManager();
+    const doc = await manager.makeDynamicJson({
+      source: { type: 'inMemory', uniqueIdentifier: UNIQUE_ID },
+      initialContent: { counter: 0 },
+    });
+
+    const inc = async (d: number) => {
+      await doc.transaction(async (d) => {
+        console.log('Worker transaction increment on worker', cluster.worker?.id);
+        const s = await d.get(['counter']);
+        await d.set([], 'counter', (s as number) + d);
+      });
+    };
+
+    for (let i = 0; i < 3; i++) {
+      await inc(1);
+    }
+    process.exit(0);
+  })();
+}
+```
+
+ 
+Notes:
+- `transaction` is a convenience that runs the provided async callback on the primary under the lock. Inside the callback
+  you receive a ThreadedJson-like object to `get`, `set`, and run other mutation helpers.
+- Worker processes can call `transaction` too — their calls are forwarded to the primary which executes them in order.
+- If you need multi-host distributed transactions (across machines), use the `redis` mode and ensure your `DistributedLock`
+  / Redis locking strategy is configured appropriately.
 
 Details:
 
