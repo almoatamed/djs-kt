@@ -1,14 +1,18 @@
 import cluster from "cluster";
 import { createDynamicJsonManager as makeDJSManager } from "./djs";
+import { Redis } from "ioredis";
+const client = new Redis()
 
 const NUM_WORKERS = 3;
 const UNIQUE_ID = "mem:counter";
 
+
+
 if (cluster.isPrimary) {
     (async () => {
-        const manager = makeDJSManager();
+        const manager = makeDJSManager(client);
         const doc = await manager.makeDynamicJson({
-            source: { type: "inMemory", uniqueIdentifier: UNIQUE_ID },
+            source: { type: "redis", uniqueIdentifier: UNIQUE_ID },
             initialContent: { counter: 0 },
         });
         for (let i = 0; i < NUM_WORKERS; i++) cluster.fork({ WORKER_INDEX: String(i + 1) });

@@ -21,7 +21,7 @@ export class DistributedLock {
         retryDelay: number = 100,
         maxRetries: number = 30
     ): Promise<string | null> {
-        ttl = ttl > 0 ? ttl + Math.random() * 30 : 0;
+        ttl = Math.floor(ttl > 0 ? ttl + Math.random() * 30 : 0);
         retryDelay = retryDelay + Math.random() * 30;
 
         const lockId = Math.random().toString(36).substring(2, 15);
@@ -30,8 +30,8 @@ export class DistributedLock {
         let retries = 0;
 
         while (retries < maxRetries) {
+            
             const result = await this.redis.set(key, lockId, "PX", ttl, "NX");
-
             if (result === "OK") {
                 return lockId;
             }
