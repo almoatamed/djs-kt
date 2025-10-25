@@ -82,7 +82,7 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
             initialContent?: JSONDefinition;
         }): Promise<ThreadedJson<JSONDefinition>> {
             const uniqueEventId = `${source.type == "jsonFile" ? source.fileFullPath : source.uniqueIdentifier}`;
-            console.log("uniqueEventId", uniqueEventId)
+            console.log("uniqueEventId", uniqueEventId);
             if (source.type == "redis" && (!redisClient || !redisLock)) {
                 throw new Error(
                     "this manager cannot create redis based client with redis connection, please create new manager with a valid redis connection"
@@ -141,18 +141,18 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                     }
                 } else if (source.type == "redis") {
                     if (initialContent) {
-                        console.log("Getting existing content")
+                        console.log("Getting existing content");
                         const existingContent = await redisClient!.get(uniqueEventId);
                         console.log({
-                            existingContent
-                        })
+                            existingContent,
+                        });
                         if (!existingContent) {
-                            console.log("Acquiring redis lock")
+                            console.log("Acquiring redis lock");
                             const locked = await lockRedis();
-                            console.log("acquired lock", locked)
+                            console.log("acquired lock", locked);
                             if (locked) {
                                 try {
-                                    console.log("Setting up redis value")
+                                    console.log("Setting up redis value");
                                     await redisClient!.set(uniqueEventId, JSON.stringify(initialContent));
                                 } catch (error) {
                                     console.error(error);
@@ -171,7 +171,7 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                         result = inMemory;
                     } else if (source.type == "redis" && redisClient) {
                         result = await redisClient.get(uniqueEventId);
-                        result= result ? JSON.parse(result) : {}
+                        result = result ? JSON.parse(result) : {};
                     } else if (source.type === "jsonFile" && (await fs.exists(source.fileFullPath))) {
                         result = JSON.parse(await fs.readFile(source.fileFullPath, "utf-8"));
                     } else {
@@ -343,7 +343,6 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                     return await update(newData);
                 });
 
-
                 const sleep = (period: number) => {
                     return new Promise<void>((resolve) => {
                         setTimeout(resolve, period);
@@ -363,8 +362,10 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                 };
 
                 let lockIdTimer: NodeJS.Timeout | number | undefined = undefined;
-                const setLockId = (timeout: number) => {
+                const setLockId = async (timeout: number) => {
+                    clearTimeout(lockIdTimer);
                     lockId = generateQueryId();
+                    await lockRedis(true);
                     lockIdTimer = setTimeout(() => {
                         clearLockId();
                         console.error("Lock expired and released with timeout");
@@ -373,9 +374,9 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                 const clearLockId = () => {
                     console.log("clearing lock", lockId);
                     clearTimeout(lockIdTimer);
+                    releaseRedis(true);
                     lockId = null;
                 };
-
 
                 const waitForPrimaryLockIdRelease = async () => {
                     let tryCount = 0;
@@ -443,7 +444,7 @@ export const createDynamicJsonManager = (redisClient?: Redis) => {
                                     if (lockId && msg.query?.lockId == lockId) {
                                         throw new Error("you already have a lock");
                                     }
-                                    setLockId(msg.query.timeout || 5e3);
+                                    await setLockId(msg.query.timeout || 5e3);
                                     console.log("Sending lock id", lockId, "to worker", worker.id);
                                     worker.send({
                                         queryId: msg.queryId,
