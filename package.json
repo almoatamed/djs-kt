@@ -1,6 +1,6 @@
 {
   "name": "djs-kt",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "djs-kt: a TypeScript dynamic JSON manager for Node.js clusters — supports in-memory, JSON-file and Redis-backed state with optional distributed locks.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
